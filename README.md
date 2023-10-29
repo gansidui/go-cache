@@ -5,6 +5,15 @@ Wraps leveldb and implements TTL.
 
 ## Usage
 
+### Install
+
+```
+go get github.com/gansidui/go-cache
+```
+
+
+### Example
+
 ```
 package main
 
@@ -41,7 +50,7 @@ func main() {
 	// Wait longer than TTL
 	time.Sleep(5 * time.Second)
 
-	if value, err := cache.Get([]byte("key")); err != nil {
+	if _, err := cache.Get([]byte("key")); err != nil {
 		fmt.Println(err) // output: not found
 	}
 }
