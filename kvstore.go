@@ -13,7 +13,6 @@ import (
 
 // 注意：
 // leveldb.OpenFile 返回的对象是线程安全的，详见：https://github.com/syndtr/goleveldb
-// 需要加锁是因为要维护 keyForCount、 keyForSequence 等成员变量，只需要在读写成员变量的地方加读写锁即可。
 // 另外，leveldb.Get 等接口返回的字节数组是不允许修改的，为了安全，最好是先拷贝一份再返回
 
 var (
@@ -44,22 +43,38 @@ func isReservedlKey(key []byte) bool {
 type KVStore struct {
 	db     *leveldb.DB
 	dbPath string
-
-	// 保护 keyForCount、keyForSequence 等成员变量的读写
-	mutex sync.RWMutex
+	mutex  sync.RWMutex
 }
 
 func (kv *KVStore) Open(path string) error {
+	kv.mutex.Lock()
+	defer kv.mutex.Unlock()
+
 	var err error
 	if kv.db, err = leveldb.OpenFile(path, nil); err != nil {
 		return errors.New(fmt.Sprintf("KVStore open [%v] failed: %v", path, err))
 	}
 	kv.dbPath = path
+
+	if !kv.Has(keyForSequence) {
+		if err = kv.db.Put(keyForSequence, []byte("0"), nil); err != nil {
+			return errors.New(fmt.Sprintf("KVStore init keyForSequence failed: %v", err))
+		}
+	}
+	if !kv.Has(keyForCount) {
+		if err = kv.db.Put(keyForCount, []byte("0"), nil); err != nil {
+			return errors.New(fmt.Sprintf("KVStore init keyForCount failed: %v", err))
+		}
+	}
+
 	log.Printf("KVStore open [%v] success\n", path)
 	return nil
 }
 
 func (kv *KVStore) Close() error {
+	kv.mutex.Lock()
+	defer kv.mutex.Unlock()
+
 	log.Printf("KVStore close [%v]\n", kv.dbPath)
 	return kv.db.Close()
 }
@@ -69,12 +84,12 @@ func (kv *KVStore) Put(key, value []byte) error {
 		return errors.New("Not allow put reserved key")
 	}
 
+	kv.mutex.Lock()
+	defer kv.mutex.Unlock()
+
 	if kv.Has(key) {
 		return kv.db.Put(key, value, nil)
 	}
-
-	kv.mutex.Lock()
-	defer kv.mutex.Unlock()
 
 	// key总数+1
 	count := kv.count() + 1
@@ -92,6 +107,9 @@ func (kv *KVStore) Get(key []byte) ([]byte, error) {
 		return nil, errors.New("Not allow get reserved key")
 	}
 
+	kv.mutex.RLock()
+	defer kv.mutex.RUnlock()
+
 	value, err := kv.db.Get(key, nil)
 	if err == nil {
 		copyValue := make([]byte, len(value))
@@ -106,10 +124,10 @@ func (kv *KVStore) Delete(key []byte) error {
 		return errors.New("Not allow delete reserved key")
 	}
 
-	if kv.Has(key) {
-		kv.mutex.Lock()
-		defer kv.mutex.Unlock()
+	kv.mutex.Lock()
+	defer kv.mutex.Unlock()
 
+	if kv.Has(key) {
 		// key总数-1
 		count := kv.count() - 1
 
@@ -137,8 +155,10 @@ func (kv *KVStore) Has(key []byte) bool {
 // 如果当前key为字典序最大，则返回的结果为空；如果当前key为字典序最小，则返回最前的n个key
 // 注意：leveldb 是根据 key 的字典序排序的
 func (kv *KVStore) Next(key []byte, n int) [][]byte {
-	keys := make([][]byte, 0)
+	// 注意：NewIterator 内部会进行快照，这里不用加锁
+
 	iter := kv.db.NewIterator(nil, nil)
+	defer iter.Release()
 
 	ok := false
 	if key == nil || bytes.Equal(key, []byte("")) {
@@ -147,6 +167,7 @@ func (kv *KVStore) Next(key []byte, n int) [][]byte {
 		ok = iter.Seek(key)
 	}
 
+	keys := make([][]byte, 0)
 	for ; ok && len(keys) < n; ok = iter.Next() {
 		// 过滤当前key 和 保留key
 		if bytes.Equal(iter.Key(), key) || isReservedlKey(iter.Key()) {
@@ -157,7 +178,6 @@ func (kv *KVStore) Next(key []byte, n int) [][]byte {
 		copy(copyKey, iter.Key())
 		keys = append(keys, copyKey)
 	}
-	iter.Release()
 
 	return keys
 }
@@ -167,8 +187,10 @@ func (kv *KVStore) Next(key []byte, n int) [][]byte {
 // 如果当前key为字典序最小，则返回的结果为空；如果当前key为字典序最大，则返回最后的n个key
 // 注意：leveldb 是根据 key 的字典序排序的
 func (kv *KVStore) Prev(key []byte, n int) [][]byte {
-	keys := make([][]byte, 0)
+	// 注意：NewIterator 内部会进行快照，这里不用加锁
+
 	iter := kv.db.NewIterator(nil, nil)
+	defer iter.Release()
 
 	ok := false
 	if key == nil || bytes.Equal(key, []byte("")) {
@@ -177,6 +199,7 @@ func (kv *KVStore) Prev(key []byte, n int) [][]byte {
 		ok = iter.Seek(key)
 	}
 
+	keys := make([][]byte, 0)
 	for ; ok && len(keys) < n; ok = iter.Prev() {
 		// 过滤当前key 和 保留key
 		if bytes.Equal(iter.Key(), key) || isReservedlKey(iter.Key()) {
@@ -187,7 +210,6 @@ func (kv *KVStore) Prev(key []byte, n int) [][]byte {
 		copy(copyKey, iter.Key())
 		keys = append(keys, copyKey)
 	}
-	iter.Release()
 
 	return keys
 }
@@ -201,10 +223,6 @@ func (kv *KVStore) Count() uint64 {
 }
 
 func (kv *KVStore) count() uint64 {
-	if !kv.Has(keyForCount) {
-		return 0
-	}
-
 	value, err := kv.db.Get(keyForCount, nil)
 	if err != nil {
 		return 0
@@ -226,10 +244,6 @@ func (kv *KVStore) CurrentSequence() uint64 {
 }
 
 func (kv *KVStore) currentSequence() uint64 {
-	if !kv.Has(keyForSequence) {
-		return 0
-	}
-
 	value, err := kv.db.Get(keyForSequence, nil)
 	if err != nil {
 		return 0

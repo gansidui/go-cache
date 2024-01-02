@@ -9,14 +9,14 @@ type TTLCache struct {
 	ttlChecker *TTLChecker
 }
 
-func (cache *TTLCache) Open(dataDBPath, ttlDBPath string) error {
-	cache.dataStore = &KVStore{}
-	cache.ttlChecker = &TTLChecker{}
+func (c *TTLCache) Open(dataDBPath, ttlDBPath string) error {
+	c.dataStore = &KVStore{}
+	c.ttlChecker = &TTLChecker{}
 
-	if err := cache.dataStore.Open(dataDBPath); err != nil {
+	if err := c.dataStore.Open(dataDBPath); err != nil {
 		return err
 	}
-	if err := cache.ttlChecker.Open(ttlDBPath, cache.onKeyExpiredCallback); err != nil {
+	if err := c.ttlChecker.Open(ttlDBPath, c.onKeyExpiredCallback); err != nil {
 		return err
 	}
 	return nil

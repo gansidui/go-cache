@@ -97,26 +97,21 @@ func (c *TTLChecker) startCheckLoop() {
 }
 
 func (c *TTLChecker) checkExpired() {
-	expiredKeys := make([][]byte, 0)
-
 	c.mutex.Lock()
+	defer c.mutex.Unlock()
+
 	now := time.Now().Unix()
 	for element := c.skList.Front(); element != nil; element = element.Next() {
-		// 由于 skList 是有序的，所以只要从头开始检查，遇到不过期的立即跳出即可
+		// 由于 skList 是有序的，所以只要从头开始检查，遇到没过期的立即跳出即可
 		info := element.Value.(*TTLInfo)
 		if info.ExpiredTime >= now {
 			break
 		}
-		c.deleteIndex(info)
-
-		expiredKeys = append(expiredKeys, info.Key)
-	}
-	c.mutex.Unlock()
-
-	if c.callback != nil {
-		for _, key := range expiredKeys {
-			c.callback(key)
+		// TTL触发回调，注意：先回调再删除索引，避免中途进程挂了
+		if c.callback != nil {
+			c.callback(info.Key)
 		}
+		c.deleteIndex(info)
 	}
 }
 
