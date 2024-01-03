@@ -24,8 +24,20 @@ func (c *TTLCheckerForTest) OnKeyExpiredCallback(key []byte) {
 
 func (c *TTLCheckerForTest) Open(dbPath string) {
 	c.checker.Open(dbPath, c.OnKeyExpiredCallback)
+
+	info, err := c.checker.GetInfo([]byte("not_exist_key"))
+	if err == nil || info != nil {
+		c.t.Fatal()
+	}
+
 	for i := 0; i < len(c.keys); i++ {
-		c.checker.SetTTL([]byte(c.keys[i]), time.Now().Unix(), c.ttlArray[i])
+		var createTime int64 = time.Now().Unix()
+		c.checker.SetTTL([]byte(c.keys[i]), createTime, c.ttlArray[i])
+
+		info, err := c.checker.GetInfo([]byte(c.keys[i]))
+		if err != nil || info.CreateTime != createTime || info.TTL != c.ttlArray[i] {
+			c.t.Fatal()
+		}
 	}
 }
 

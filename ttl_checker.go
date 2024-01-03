@@ -125,7 +125,7 @@ func (c *TTLChecker) SetTTL(key []byte, createTime, ttl int64) error {
 		return errors.New(fmt.Sprintf("createTime[%v] or ttl[%v] invalid", createTime, ttl))
 	}
 
-	info, err := c.getInfo(key)
+	info, err := c.GetInfo(key)
 	if err == nil {
 		if info.CreateTime == createTime && info.TTL == ttl {
 			return nil
@@ -147,7 +147,7 @@ func (c *TTLChecker) Delete(key []byte) error {
 	c.mutex.Lock()
 	defer c.mutex.Unlock()
 
-	info, err := c.getInfo(key)
+	info, err := c.GetInfo(key)
 	if err != nil {
 		return err
 	}
@@ -155,7 +155,7 @@ func (c *TTLChecker) Delete(key []byte) error {
 	return c.deleteIndex(info)
 }
 
-func (c *TTLChecker) getInfo(key []byte) (*TTLInfo, error) {
+func (c *TTLChecker) GetInfo(key []byte) (*TTLInfo, error) {
 	value, err := c.db.Get(key)
 	if err != nil {
 		return nil, err
@@ -167,6 +167,10 @@ func (c *TTLChecker) getInfo(key []byte) (*TTLInfo, error) {
 	}
 
 	return info, nil
+}
+
+func (c *TTLChecker) GetKeyCount() uint64 {
+	return c.db.Count()
 }
 
 func (c *TTLChecker) addIndex(info *TTLInfo, writeDB bool) error {
