@@ -45,6 +45,6 @@ func (c *TTLCache) Count() uint64 {
 	return c.dataStore.count()
 }
 
-func (c *TTLCache) onKeyExpiredCallback(key []byte) {
-	c.dataStore.Delete(key)
+func (c *TTLCache) onKeyExpiredCallback(info *TTLInfo) {
+	c.dataStore.Delete(info.Key)
 }

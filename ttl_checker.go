@@ -12,8 +12,6 @@ import (
 	"github.com/gansidui/skiplist"
 )
 
-type KeyExpiredCallback = func(key []byte)
-
 type TTLInfo struct {
 	Key         []byte `json:"key"`          // 唯一Key
 	CreateTime  int64  `json:"create-time"`  // 创建时间戳，单位：秒
@@ -31,6 +29,9 @@ func (info *TTLInfo) Less(other interface{}) bool {
 	}
 	return false
 }
+
+// 注意：回调中不能修改 info
+type KeyExpiredCallback = func(info *TTLInfo)
 
 type TTLChecker struct {
 	callback      KeyExpiredCallback
@@ -109,7 +110,7 @@ func (c *TTLChecker) checkExpired() {
 		}
 		// TTL触发回调，注意：先回调再删除索引，避免中途进程挂了
 		if c.callback != nil {
-			c.callback(info.Key)
+			c.callback(info)
 		}
 		c.deleteIndex(info)
 	}

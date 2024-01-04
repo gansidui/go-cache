@@ -15,8 +15,13 @@ type TTLCheckerForTest struct {
 	idx               int
 }
 
-func (c *TTLCheckerForTest) OnKeyExpiredCallback(key []byte) {
-	if string(key) != c.expectExpiredkeys[c.idx] {
+func (c *TTLCheckerForTest) OnKeyExpiredCallback(info *TTLInfo) {
+	if string(info.Key) != c.expectExpiredkeys[c.idx] {
+		c.t.Fatal()
+	}
+	// ttlInfo must equal info
+	ttlInfo, err := c.checker.GetInfo(info.Key)
+	if err != nil || ttlInfo.Less(info) || info.Less(ttlInfo) {
 		c.t.Fatal()
 	}
 	c.idx++
